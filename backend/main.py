@@ -1,108 +1,91 @@
-from fastapi import FastAPI, File, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
-
-from google.cloud import speech_v1p1beta1 as speech
-from openai import OpenAI
-import tempfile
 import os
-
+import logging
+from typing import Dict, Any, Optional
+from flask import Flask, request, jsonify
 from dotenv import load_dotenv
+import whisper
+import openai
 
-load_dotenv()  # Loads variables from .env file
+# Configure logging
+logging.basicConfig(level=logging.INFO, 
+                    format='%(asctime)s - %(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
 
-app = FastAPI()
+# Load environment variables
+load_dotenv()
 
-# List of allowed origins
-origins = [
-    "http://localhost:5173",  # Example: React frontend on localhost
-    "http://example.com",  # Example: Production frontend domain
-]
+app = Flask(__name__)
+openai.api_key = os.getenv('OPENAI_API_KEY')
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,  # Allows requests from specific origins
-    allow_credentials=True,  # Allows cookies and credentials
-    allow_methods=["*"],  # Allows all HTTP methods
-    allow_headers=["*"],  # Allows all headers
-)
-
-# Set up Google Cloud Speech-to-Text and OpenAI API keys
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google-credentials.json"
-
-openaiClient = OpenAI(
-    api_key=os.environ.get("OPENAI_API_KEY"),
-)
-
-
-@app.post("/process-audio/")
-async def process_audio(file: UploadFile = File(...), speakers: int = 2):
+def transcribe_audio(file_path: str) -> Dict[str, Any]:
     """
-    Endpoint to process uploaded audio file:
-    - Transcribes the audio with Google Speech-to-Text (including speaker diarization).
-    - Summarizes the transcript using OpenAI GPT-4.
+    Transcribe audio file using Whisper model
+    
+    Args:
+        file_path (str): Path to audio file
+    
+    Returns:
+        Dict containing transcription results
     """
-    # Save the uploaded file to a temporary location
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
-        temp_file.write(file.file.read())
-        temp_file_path = temp_file.name
-
     try:
-        # Step 1: Transcribe audio with Google Speech-to-Text
-        transcript_with_speakers = transcribe_audio_with_google(
-            temp_file_path, speakers
-        )
-        # Step 2: Summarize the transcript using OpenAI GPT-4
-        summary = await summarize_with_gpt4(transcript_with_speakers)
-
-        # Return the transcript and summary as a response
+        model = whisper.load_model("base")
+        result = model.transcribe(file_path)
         return {
-            "transcript": transcript_with_speakers,
-            "summary": summary,
+            "text": result['text'],
+            "language": result['language']
         }
-    finally:
-        # Clean up the temporary file
-        os.remove(temp_file_path)
+    except Exception as e:
+        logger.error(f"Transcription error: {e}")
+        raise
 
-
-def transcribe_audio_with_google(audio_path: str, speaker_count: int) -> str:
+def summarize_text(text: str) -> Optional[str]:
     """
-    Transcribes audio using Google Speech-to-Text with speaker diarization.
+    Generate summary using OpenAI
+    
+    Args:
+        text (str): Input text to summarize
+    
+    Returns:
+        Summarized text or None
     """
-    client = speech.SpeechClient()
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Summarize the following text concisely:"},
+                {"role": "user", "content": text}
+            ]
+        )
+        return response.choices[0].message['content']
+    except Exception as e:
+        logger.error(f"Summarization error: {e}")
+        return None
 
-    # Configure Google STT request
-    config = {
-        "enable_speaker_diarization": True,
-        "diarization_speaker_count": speaker_count,
-        "language_code": "ar-EG",  # Arabic (Egypt)
-        "alternative_language_codes": ["en-US"],  # Secondary language (English - US)
-        "audio_channel_count": 2,  # For stereo audio
-    }
-
-    with open(audio_path, "rb") as audio_file:
-        audio = {"content": audio_file.read()}
-
-    response = client.recognize(config=config, audio=audio)
-
-    # Process the results to include speaker tags
-    result = response.results[-1]  # Get the last result (most stable)
-    words_info = result.alternatives[0].words
-    transcript = []
-    for word in words_info:
-        transcript.append(f"{word.word} ")
-    return " ".join(transcript)
-
-
-async def summarize_with_gpt4(transcript: str) -> str:
+@app.route('/transcribe', methods=['POST'])
+def transcribe_endpoint():
     """
-    Summarizes the transcript using OpenAI GPT-4o.
+    Endpoint for audio transcription and summarization
     """
-    prompt = f"""
-    Summarize the following Arabic/English transcript of a meeting into key points and action items in egyptian arabic, but don't translate english words, use them as they are:
-    {transcript}
-    """
-    response = openaiClient.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.choices[0].message.content
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
+        
+        file = request.files['file']
+        file.save('temp_audio_file')
+        
+        transcription = transcribe_audio('temp_audio_file')
+        summary = summarize_text(transcription['text'])
+        
+        os.remove('temp_audio_file')
+        
+        return jsonify({
+            "transcription": transcription,
+            "summary": summary
+        })
+    
+    except Exception as e:
+        logger.error(f"Request processing error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
