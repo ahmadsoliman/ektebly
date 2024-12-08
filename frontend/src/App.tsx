@@ -8,26 +8,25 @@ import Testimonials from './components/Testimonials';
 import Pricing from './components/Pricing';
 import FAQ from './components/FAQ';
 import Footer from './components/Footer';
-import { Language, TranscriptionResult, UploadState } from './types';
+import { TranscriptionResult, UploadState } from './types';
 
 function App() {
   const [state, setState] = useState<UploadState>({
     file: null,
-    language: 'English',
     isLoading: false,
     error: null,
     result: null,
   });
 
-  const handleUpload = async (file: File, language: Language) => {
+  const handleUpload = async (file: File) => {
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('language', language);
+    formData.append('speakers', '2');
 
     try {
-      const response = await fetch('http://0.0.0.0:8000/process-audio', {
+      const response = await fetch('http://localhost:8000/process-audio', {
         method: 'POST',
         body: formData,
       });
@@ -47,6 +46,36 @@ function App() {
     }
   };
 
+  const handleUrlUpload = async (url: string) => {
+    setState((prev) => ({ ...prev, isLoading: true, error: null }));
+
+    try {
+      const response = await fetch('http://localhost:8000/process-audio-url', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url,
+          speakers: 2,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to process audio URL');
+      }
+
+      const result: TranscriptionResult = await response.json();
+      setState((prev) => ({ ...prev, isLoading: false, result }));
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        isLoading: false,
+        error: 'Failed to process audio URL. Please try again. ' + error,
+      }));
+    }
+  };
+
   return (
     <div className='min-h-screen bg-gray-50'>
       <Header />
@@ -59,7 +88,7 @@ function App() {
               Start Converting Your Meetings
             </h2>
             <p className='text-gray-600'>
-              Choose your preferred input method and language
+              Choose your preferred input method
             </p>
           </div>
 
@@ -71,7 +100,11 @@ function App() {
             </div>
           )}
 
-          <FileUpload onUpload={handleUpload} isLoading={state.isLoading} />
+          <FileUpload 
+            onUpload={handleUpload}
+            onUrlUpload={handleUrlUpload}
+            isLoading={state.isLoading}
+          />
 
           {state.result && (
             <div className='mt-8'>

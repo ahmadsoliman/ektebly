@@ -1,108 +1,84 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-
-from google.cloud import speech_v1p1beta1 as speech
-from openai import OpenAI
+from pydantic import BaseModel, HttpUrl
+import httpx
+from typing import Optional
 import tempfile
 import os
-
 from dotenv import load_dotenv
 
-load_dotenv()  # Loads variables from .env file
+from services.transcription import TranscriptionService
+from services.summarization import SummarizationService
+
+load_dotenv()
 
 app = FastAPI()
 
-# List of allowed origins
 origins = [
-    "http://localhost:5173",  # Example: React frontend on localhost
-    "http://example.com",  # Example: Production frontend domain
+    "http://localhost:5173",
+    "http://localhost:3000",
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # Allows requests from specific origins
-    allow_credentials=True,  # Allows cookies and credentials
-    allow_methods=["*"],  # Allows all HTTP methods
-    allow_headers=["*"],  # Allows all headers
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Set up Google Cloud Speech-to-Text and OpenAI API keys
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google-credentials.json"
-
-openaiClient = OpenAI(
-    api_key=os.environ.get("OPENAI_API_KEY"),
-)
-
+class AudioURLRequest(BaseModel):
+    url: HttpUrl
+    speakers: Optional[int] = 2
 
 @app.post("/process-audio/")
 async def process_audio(file: UploadFile = File(...), speakers: int = 2):
-    """
-    Endpoint to process uploaded audio file:
-    - Transcribes the audio with Google Speech-to-Text (including speaker diarization).
-    - Summarizes the transcript using OpenAI GPT-4.
-    """
-    # Save the uploaded file to a temporary location
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
-        temp_file.write(file.file.read())
-        temp_file_path = temp_file.name
-
+    """Process uploaded audio file"""
     try:
-        # Step 1: Transcribe audio with Google Speech-to-Text
-        transcript_with_speakers = transcribe_audio_with_google(
-            temp_file_path, speakers
-        )
-        # Step 2: Summarize the transcript using OpenAI GPT-4
-        summary = await summarize_with_gpt4(transcript_with_speakers)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+            temp_file.write(await file.read())
+            temp_file_path = temp_file.name
 
-        # Return the transcript and summary as a response
+        try:
+            return await process_audio_file(temp_file_path, speakers)
+        finally:
+            os.remove(temp_file_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/process-audio-url/")
+async def process_audio_url(request: AudioURLRequest):
+    """Process audio file from URL"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(str(request.url))
+            response.raise_for_status()
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+                temp_file.write(response.content)
+                temp_file_path = temp_file.name
+
+            try:
+                return await process_audio_file(temp_file_path, request.speakers)
+            finally:
+                os.remove(temp_file_path)
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch audio file: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def process_audio_file(file_path: str, speakers: int):
+    """Common processing logic for audio files"""
+    try:
+        transcription_service = TranscriptionService()
+        transcript = transcription_service.transcribe(file_path, speakers)
+
+        summarization_service = SummarizationService()
+        summary = await summarization_service.summarize(transcript)
+
         return {
-            "transcript": transcript_with_speakers,
-            "summary": summary,
+            "transcript": transcript,
+            "summary": summary
         }
-    finally:
-        # Clean up the temporary file
-        os.remove(temp_file_path)
-
-
-def transcribe_audio_with_google(audio_path: str, speaker_count: int) -> str:
-    """
-    Transcribes audio using Google Speech-to-Text with speaker diarization.
-    """
-    client = speech.SpeechClient()
-
-    # Configure Google STT request
-    config = {
-        "enable_speaker_diarization": True,
-        "diarization_speaker_count": speaker_count,
-        "language_code": "ar-EG",  # Arabic (Egypt)
-        "alternative_language_codes": ["en-US"],  # Secondary language (English - US)
-        "audio_channel_count": 2,  # For stereo audio
-    }
-
-    with open(audio_path, "rb") as audio_file:
-        audio = {"content": audio_file.read()}
-
-    response = client.recognize(config=config, audio=audio)
-
-    # Process the results to include speaker tags
-    result = response.results[-1]  # Get the last result (most stable)
-    words_info = result.alternatives[0].words
-    transcript = []
-    for word in words_info:
-        transcript.append(f"{word.word} ")
-    return " ".join(transcript)
-
-
-async def summarize_with_gpt4(transcript: str) -> str:
-    """
-    Summarizes the transcript using OpenAI GPT-4o.
-    """
-    prompt = f"""
-    Summarize the following Arabic/English transcript of a meeting into key points and action items in egyptian arabic, but don't translate english words, use them as they are:
-    {transcript}
-    """
-    response = openaiClient.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.choices[0].message.content
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
