@@ -1,5 +1,6 @@
 import { Upload, X, Mic, Link } from 'lucide-react';
 import { useState, useRef } from 'react';
+import { convertToWav } from '../utils/ffmpeg';
 
 interface FileUploadProps {
   onUpload: (file: File) => void;
@@ -13,6 +14,7 @@ export default function FileUpload({ onUpload, onUrlUpload, isLoading }: FileUpl
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [url, setUrl] = useState('');
   const [dragActive, setDragActive] = useState(false);
+  const [conversionProgress, setConversionProgress] = useState<number | null>(null);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
 
@@ -26,20 +28,34 @@ export default function FileUpload({ onUpload, onUrlUpload, isLoading }: FileUpl
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
 
     const files = e.dataTransfer.files;
     if (files?.[0]) {
-      setSelectedFile(files[0]);
+      await handleFileSelection(files[0]);
     }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) {
-      setSelectedFile(e.target.files[0]);
+      await handleFileSelection(e.target.files[0]);
+    }
+  };
+
+  const handleFileSelection = async (file: File) => {
+    try {
+      setConversionProgress(0);
+      const wavFile = await convertToWav(file, (progress) => {
+        setConversionProgress(progress);
+      });
+      setSelectedFile(wavFile);
+      setConversionProgress(null);
+    } catch (error) {
+      console.error('Error converting file:', error);
+      // Handle error appropriately
     }
   };
 
@@ -59,6 +75,7 @@ export default function FileUpload({ onUpload, onUrlUpload, isLoading }: FileUpl
 
   const removeFile = () => {
     setSelectedFile(null);
+    setConversionProgress(null);
   };
 
   const startRecording = async () => {
@@ -71,10 +88,10 @@ export default function FileUpload({ onUpload, onUrlUpload, isLoading }: FileUpl
         audioChunks.current.push(event.data);
       };
 
-      mediaRecorder.current.onstop = () => {
+      mediaRecorder.current.onstop = async () => {
         const audioBlob = new Blob(audioChunks.current, { type: 'audio/wav' });
         const file = new File([audioBlob], 'recording.wav', { type: 'audio/wav' });
-        setSelectedFile(file);
+        await handleFileSelection(file);
       };
 
       mediaRecorder.current.start();
@@ -136,7 +153,7 @@ export default function FileUpload({ onUpload, onUrlUpload, isLoading }: FileUpl
             type="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="Enter audio file URL"
+            placeholder="Enter audio/video file URL"
             className="w-full p-2 border border-gray-200 rounded-md"
           />
           <button
@@ -166,39 +183,54 @@ export default function FileUpload({ onUpload, onUrlUpload, isLoading }: FileUpl
               <>
                 <Upload className="mx-auto h-12 w-12 text-gray-400 mb-4" />
                 <p className="text-gray-600 mb-2">
-                  Drag and drop your audio file here, or click to select
+                  Drag and drop your audio/video file here, or click to select
+                </p>
+                <p className="text-sm text-gray-500">
+                  Supports MP3, MP4, AVI, MOV, and more
                 </p>
                 <input
                   id="file-input"
                   type="file"
-                  accept="audio/*"
+                  accept="audio/*,video/*"
                   onChange={handleFileSelect}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 />
               </>
             ) : (
-              <div className="flex items-center justify-between bg-gray-50 p-4 rounded-md">
-                <span className="text-gray-900 font-medium">{selectedFile.name}</span>
-                <button 
-                  onClick={removeFile}
-                  className="text-gray-500 hover:text-gray-700"
-                >
-                  <X className="h-5 w-5" />
-                </button>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between bg-gray-50 p-4 rounded-md">
+                  <span className="text-gray-900 font-medium">{selectedFile.name}</span>
+                  <button 
+                    onClick={removeFile}
+                    className="text-gray-500 hover:text-gray-700"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                {conversionProgress !== null && (
+                  <div className="w-full bg-gray-200 rounded-full h-2.5">
+                    <div 
+                      className="bg-gray-900 h-2.5 rounded-full transition-all duration-300"
+                      style={{ width: `${conversionProgress}%` }}
+                    ></div>
+                  </div>
+                )}
               </div>
             )}
           </div>
 
           <button
             onClick={handleSubmit}
-            disabled={!selectedFile || isLoading}
+            disabled={!selectedFile || isLoading || conversionProgress !== null}
             className={`w-full mt-6 py-3 rounded-md font-medium ${
-              !selectedFile || isLoading
+              !selectedFile || isLoading || conversionProgress !== null
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 : 'bg-gray-900 text-white hover:bg-gray-800'
             }`}
           >
-            {isLoading ? 'Processing...' : 'Start Transcription'}
+            {isLoading ? 'Processing...' : 
+             conversionProgress !== null ? `Converting... ${conversionProgress}%` :
+             'Start Transcription'}
           </button>
         </>
       )}
