@@ -7,7 +7,7 @@ export const loadFFmpeg = async () => {
   if (ffmpeg) return ffmpeg;
 
   ffmpeg = new FFmpeg();
-
+  
   // Load ffmpeg.wasm-core script
   const baseURL = 'https://unpkg.com/@ffmpeg/core-mt@0.12.6/dist/esm';
   await ffmpeg.load({
