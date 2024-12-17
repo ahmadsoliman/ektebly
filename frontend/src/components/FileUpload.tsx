@@ -287,7 +287,7 @@ export default function FileUpload({
                   </div>
                 </div>
                 {conversionProgress !== null && (
-                  <div className='space-y-2'>
+                  <div className='space-y-2 w-full'>
                     <div className='w-full bg-gray-200 rounded-full h-2.5'>
                       <div
                         className='bg-gray-900 h-2.5 rounded-full transition-all duration-300'

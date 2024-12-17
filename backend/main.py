@@ -2,12 +2,12 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
 import tempfile
+from typing import Optional
 import os
 from dotenv import load_dotenv
-from typing import Optional
 
 from services.transcription import TranscriptionService
-from services.summarization import SummarizationService
+from services.chat_manager import ChatManager
 from services.media_converter import MediaConverter
 
 load_dotenv()
@@ -26,6 +26,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+chat_manager = ChatManager()
+
+
+class ChatMessage(BaseModel):
+    session_id: str
+    message: str
 
 
 class AudioURLRequest(BaseModel):
@@ -81,6 +88,22 @@ async def process_audio_url(request: AudioURLRequest):
         converter.cleanup(downloaded_file, optimized_file)
 
 
+@app.post("/chat/message/")
+async def chat_message(request: ChatMessage):
+    """Process a chat message"""
+    try:
+        if not chat_manager.session_exists(request.session_id):
+            raise HTTPException(status_code=404, detail="Chat session not found")
+
+        response = await chat_manager.process_message(
+            request.session_id, request.message
+        )
+
+        return {"messages": chat_manager.get_messages(request.session_id)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 async def process_audio_file(file_path: str, speakers: int):
     """Common processing logic for audio files"""
     try:
@@ -89,15 +112,24 @@ async def process_audio_file(file_path: str, speakers: int):
         audio_info = converter.get_audio_info(file_path)
         print(f"Processing audio file: {audio_info}")
 
+        # Get transcription
         transcription_service = TranscriptionService()
-        transcript = transcription_service.transcribe(file_path, speakers)
+        transcription_data = transcription_service.transcribe(file_path, speakers)
 
-        summarization_service = SummarizationService()
-        summary = await summarization_service.summarize(transcript)
+        # Create new chat session
+        session_id = chat_manager.create_session()
+
+        # Send initial summarization prompt
+        initial_prompt = (
+            f"Please provide a comprehensive summary of the following transcript, "
+            f"highlighting key points and action items:\n\n{transcription_data['raw_text']}"
+        )
+        summary = await chat_manager.process_message(session_id, initial_prompt)
 
         return {
-            "transcript": transcript,
-            "summary": summary,
+            "transcription": transcription_data,
+            "session_id": session_id,
+            "messages": chat_manager.get_messages(session_id),
             "audio_info": audio_info,  # Optional: return audio info to client
         }
     except Exception as e:

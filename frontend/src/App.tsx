@@ -8,7 +8,11 @@ import Testimonials from './components/Testimonials';
 import Pricing from './components/Pricing';
 import FAQ from './components/FAQ';
 import Footer from './components/Footer';
-import { TranscriptionResult, UploadState } from './types';
+import {
+  TranscriptionResponse,
+  TranscriptionResult,
+  UploadState,
+} from './types';
 
 function App() {
   const [state, setState] = useState<UploadState>({
@@ -16,6 +20,8 @@ function App() {
     isLoading: false,
     error: null,
     result: null,
+    sessionId: null,
+    messages: [],
   });
 
   const handleUpload = async (file: File, speakers: number) => {
@@ -35,8 +41,14 @@ function App() {
         throw new Error('Failed to process audio');
       }
 
-      const result: TranscriptionResult = await response.json();
-      setState((prev) => ({ ...prev, isLoading: false, result }));
+      const data: TranscriptionResponse = await response.json();
+      setState((prev) => ({
+        ...prev,
+        isLoading: false,
+        result: data.transcription,
+        sessionId: data.session_id,
+        messages: data.messages,
+      }));
     } catch (error) {
       setState((prev) => ({
         ...prev,
@@ -105,9 +117,13 @@ function App() {
             isLoading={state.isLoading}
           />
 
-          {state.result && (
+          {state.result && state.sessionId && (
             <div className='mt-8'>
-              <Results result={state.result} />
+              <Results
+                result={state.result}
+                sessionId={state.sessionId}
+                messages={state.messages}
+              />
             </div>
           )}
         </div>

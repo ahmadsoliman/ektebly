@@ -1,10 +1,14 @@
+// Update the imports
 import { Download } from 'lucide-react';
 import { TranscriptionResult } from '../types';
 import { formatTime } from '../utils/time';
 import { useState } from 'react';
+import ChatBot from './ChatBot';
 
 interface ResultsProps {
   result: TranscriptionResult;
+  sessionId: string;
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
 }
 
 interface WordTooltipProps {
@@ -18,7 +22,7 @@ const WordTooltip = ({ startTime, endTime }: WordTooltipProps) => (
   </div>
 );
 
-export default function Results({ result }: ResultsProps) {
+export default function Results({ result, sessionId, messages }: ResultsProps) {
   const [hoveredWord, setHoveredWord] = useState<number | null>(null);
 
   const downloadResults = () => {
@@ -33,73 +37,69 @@ export default function Results({ result }: ResultsProps) {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
-
   return (
-    <div className='max-w-3xl mx-auto bg-white rounded-lg shadow-sm p-8 border border-gray-100'>
-      <div className='flex justify-between items-center mb-6'>
-        <h2 className='text-2xl font-bold'>Results</h2>
-        <button
-          onClick={downloadResults}
-          className='flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800'
-        >
-          <Download className='h-4 w-4' />
-          Download
-        </button>
-      </div>
+    <div className='max-w-3xl mx-auto space-y-8'>
+      <div className='bg-white rounded-lg shadow-sm p-8 border border-gray-100'>
+        <div className='flex justify-between items-center mb-6'>
+          <h2 className='text-2xl font-bold'>Results</h2>
+          <button
+            onClick={downloadResults}
+            className='flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800'
+          >
+            <Download className='h-4 w-4' />
+            Download
+          </button>
+        </div>
 
-      <div className='space-y-6'>
-        <div>
-          <h3 className='text-lg font-semibold mb-3'>Transcription</h3>
-          <div className='space-y-4'>
-            {Object.entries(result.transcript?.speakers || {}).map(
-              ([speakerId, sentences]) => (
-                <div key={speakerId} className='bg-gray-50 p-4 rounded-md'>
-                  <div className='font-medium text-gray-900 mb-2'>
-                    {speakerId.replace('_', ' ').toUpperCase()}
-                  </div>
-                  {sentences.map((sentence, sentenceIndex) => (
-                    <div
-                      key={sentenceIndex}
-                      className='text-gray-700 flex flex-wrap'
-                      //  flex-row-reverse for rtl
-                    >
-                      {result.transcript?.words
-                        .filter(
-                          (word) =>
-                            word.start_time >= sentence.start_time &&
-                            word.end_time <= sentence.end_time
-                        )
-                        .map((word, wordIndex) => (
-                          <div
-                            key={wordIndex}
-                            className='relative inline hover:bg-gray-200 cursor-pointer px-0.5 rounded'
-                            onMouseEnter={() => setHoveredWord(wordIndex)}
-                            onMouseLeave={() => setHoveredWord(null)}
-                          >
-                            {word.word}
-                            {hoveredWord === wordIndex && (
-                              <WordTooltip
-                                startTime={word.start_time}
-                                endTime={word.end_time}
-                              />
-                            )}
-                          </div>
-                        ))}
+        <div className='space-y-6'>
+          <div>
+            <h3 className='text-lg font-semibold mb-3'>Transcription</h3>
+            <div className='space-y-4'>
+              {Object.entries(result.transcript?.speakers || {}).map(
+                ([speakerId, sentences]) => (
+                  <div key={speakerId} className='bg-gray-50 p-4 rounded-md'>
+                    <div className='font-medium text-gray-900 mb-2'>
+                      {speakerId.replace('_', ' ').toUpperCase()}
                     </div>
-                  ))}
-                </div>
-              )
-            )}
-          </div>
-        </div>
-
-        <div>
-          <h3 className='text-lg font-semibold mb-3'>Summary</h3>
-          <div className='bg-gray-50 p-4 rounded-md'>
-            <p className='whitespace-pre-wrap'>{result.summary}</p>
+                    {sentences.map((sentence, sentenceIndex) => (
+                      <div
+                        key={sentenceIndex}
+                        className='text-gray-700 flex flex-wrap'
+                        //  flex-row-reverse for rtl
+                      >
+                        {result.transcript?.words
+                          .filter(
+                            (word) =>
+                              word.start_time >= sentence.start_time &&
+                              word.end_time <= sentence.end_time
+                          )
+                          .map((word, wordIndex) => (
+                            <div
+                              key={wordIndex}
+                              className='relative inline hover:bg-gray-200 cursor-pointer px-0.5 rounded'
+                              onMouseEnter={() => setHoveredWord(wordIndex)}
+                              onMouseLeave={() => setHoveredWord(null)}
+                            >
+                              {word.word}
+                              {hoveredWord === wordIndex && (
+                                <WordTooltip
+                                  startTime={word.start_time}
+                                  endTime={word.end_time}
+                                />
+                              )}
+                            </div>
+                          ))}
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
+            </div>
           </div>
         </div>
       </div>
+
+      <ChatBot sessionId={sessionId} initialMessages={messages} />
     </div>
   );
 }

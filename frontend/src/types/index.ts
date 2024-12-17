@@ -29,4 +29,17 @@ export interface UploadState {
   isLoading: boolean;
   error: string | null;
   result: TranscriptionResult | null;
+  sessionId: string | null;
+  messages: ChatMessage[];
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface TranscriptionResponse {
+  transcription: TranscriptionResult;
+  session_id: string;
+  messages: ChatMessage[];
 }
