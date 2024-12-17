@@ -27,58 +27,68 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class AudioURLRequest(BaseModel):
     url: HttpUrl
     speakers: Optional[int] = 2
 
+
 @app.post("/process-audio/")
 async def process_audio(file: UploadFile = File(...), speakers: int = 2):
     """Process uploaded audio file"""
+    converter = MediaConverter()
+    temp_file = None
+    optimized_file = None
+
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
-            temp_file.write(await file.read())
-            temp_file_path = temp_file.name
+        # Save uploaded file
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=os.path.splitext(file.filename)[1]
+        ) as tmp:
+            tmp.write(await file.read())
+            temp_file = tmp.name
 
-        try:
-            # Convert to WAV if not already WAV
-            if not file.filename.lower().endswith('.wav'):
-                converter = MediaConverter()
-                wav_path = await converter.convert_to_wav(temp_file_path)
-                converter.cleanup(temp_file_path)
-                temp_file_path = wav_path
+        # Optimize audio
+        optimized_file = await converter.optimize_audio(temp_file)
 
-            return await process_audio_file(temp_file_path, speakers)
-        finally:
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
+        # Process the optimized file
+        return await process_audio_file(optimized_file, speakers)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        converter.cleanup(temp_file, optimized_file)
+
 
 @app.post("/process-audio-url/")
 async def process_audio_url(request: AudioURLRequest):
     """Process audio/video file from URL"""
     converter = MediaConverter()
     downloaded_file = None
-    converted_file = None
+    optimized_file = None
 
     try:
         # Download the file
         downloaded_file = await converter.download_file(str(request.url))
-        
-        # Convert to WAV
-        converted_file = await converter.convert_to_wav(downloaded_file)
-        
-        # Process the WAV file
-        return await process_audio_file(converted_file, request.speakers)
+
+        # Optimize audio
+        optimized_file = await converter.optimize_audio(downloaded_file)
+
+        # Process the optimized file
+        return await process_audio_file(optimized_file, request.speakers)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # Clean up temporary files
-        converter.cleanup(downloaded_file, converted_file)
+        converter.cleanup(downloaded_file, optimized_file)
+
 
 async def process_audio_file(file_path: str, speakers: int):
     """Common processing logic for audio files"""
     try:
+        # Get audio info for logging/debugging
+        converter = MediaConverter()
+        audio_info = converter.get_audio_info(file_path)
+        print(f"Processing audio file: {audio_info}")
+
         transcription_service = TranscriptionService()
         transcript = transcription_service.transcribe(file_path, speakers)
 
@@ -87,7 +97,8 @@ async def process_audio_file(file_path: str, speakers: int):
 
         return {
             "transcript": transcript,
-            "summary": summary
+            "summary": summary,
+            "audio_info": audio_info,  # Optional: return audio info to client
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

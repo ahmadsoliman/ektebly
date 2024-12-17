@@ -4,6 +4,7 @@ import os
 # Set up Google Cloud Speech-to-Text
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google-credentials.json"
 
+
 class TranscriptionService:
     def __init__(self):
         self.client = speech.SpeechClient()
@@ -16,7 +17,9 @@ class TranscriptionService:
                 "diarization_speaker_count": speaker_count,
                 "language_code": "ar-EG",
                 "alternative_language_codes": ["en-US"],
-                "audio_channel_count": 2,
+                "audio_channel_count": 1,  # Mono
+                "sample_rate_hertz": 16000,  # 16kHz
+                "encoding": speech.RecognitionConfig.AudioEncoding.FLAC,  # Specify FLAC encoding
             }
 
             with open(audio_path, "rb") as audio_file:
@@ -29,7 +32,7 @@ class TranscriptionService:
             transcript = []
             for word in words_info:
                 transcript.append(f"{word.word} ")
-            
+
             return " ".join(transcript)
         except Exception as e:
             raise Exception(f"Transcription failed: {str(e)}")

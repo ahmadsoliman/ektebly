@@ -7,7 +7,7 @@ export const loadFFmpeg = async () => {
   if (ffmpeg) return ffmpeg;
 
   ffmpeg = new FFmpeg();
-  
+
   // Load ffmpeg.wasm-core script
   const baseURL = 'https://unpkg.com/@ffmpeg/core-mt@0.12.6/dist/esm';
   await ffmpeg.load({
@@ -22,13 +22,17 @@ export const loadFFmpeg = async () => {
   return ffmpeg;
 };
 
-export const convertToWav = async (
+export const isVideoFile = (file: File): boolean => {
+  return file.type.startsWith('video/');
+};
+
+export const optimizeAudio = async (
   file: File,
   onProgress?: (progress: number) => void
 ): Promise<File> => {
   try {
     const ffmpeg = await loadFFmpeg();
-    
+
     // Write the input file to FFmpeg's virtual filesystem
     await ffmpeg.writeFile('input', await fetchFile(file));
 
@@ -39,36 +43,54 @@ export const convertToWav = async (
       });
     }
 
-    // Run FFmpeg command to convert to WAV
-    // -i input: specify input file
-    // -c:a pcm_s16le: use 16-bit PCM audio codec
-    // -ar 44100: set sample rate to 44.1kHz
-    // -ac 2: set to stereo (2 channels)
-    await ffmpeg.exec([
-      '-i', 'input',
-      '-c:a', 'pcm_s16le',
-      '-ar', '44100',
-      '-ac', '2',
-      'output.wav'
-    ]);
+    // Prepare FFmpeg command based on input type
+    const isVideo = isVideoFile(file);
+    const ffmpegCommands = [
+      '-i',
+      'input',
+      '-ac',
+      '1', // Convert to mono
+      '-ar',
+      '16000', // Set sample rate to 16kHz
+      '-c:a',
+      'flac', // Use FLAC codec
+      '-compression_level',
+      '8', // FLAC compression level
+    ];
+
+    if (isVideo) {
+      // Add video-specific options
+      ffmpegCommands.push(
+        '-vn', // Remove video stream
+        '-map',
+        '0:a:0' // Select first audio stream
+      );
+    }
+
+    ffmpegCommands.push('output.flac');
+
+    // Run FFmpeg command
+    await ffmpeg.exec(ffmpegCommands);
 
     // Read the output file from FFmpeg's virtual filesystem
-    const data = await ffmpeg.readFile('output.wav');
-    
+    const data = await ffmpeg.readFile('output.flac');
+
     // Create a new File object from the output data
-    const wavFile = new File(
-      [data],
-      `${file.name.split('.')[0]}.wav`,
-      { type: 'audio/wav' }
-    );
+    const flacFile = new File([data], `${file.name.split('.')[0]}.flac`, {
+      type: 'audio/flac',
+    });
 
     // Clean up
     await ffmpeg.deleteFile('input');
-    await ffmpeg.deleteFile('output.wav');
+    await ffmpeg.deleteFile('output.flac');
 
-    return wavFile;
+    return flacFile;
   } catch (error) {
-    console.error('Error converting file:', error);
-    throw new Error('Failed to convert file to WAV format');
+    console.error('Error optimizing file:', error);
+    throw new Error(
+      `Failed to optimize ${isVideoFile(file) ? 'video' : 'audio'} file: ${
+        error.message
+      }`
+    );
   }
 };
