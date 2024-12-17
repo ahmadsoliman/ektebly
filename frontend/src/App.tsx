@@ -18,12 +18,12 @@ function App() {
     result: null,
   });
 
-  const handleUpload = async (file: File) => {
+  const handleUpload = async (file: File, speakers: number) => {
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('speakers', '2');
+    formData.append('speakers', speakers.toString());
 
     try {
       const response = await fetch('http://localhost:8000/process-audio', {
@@ -46,7 +46,8 @@ function App() {
     }
   };
 
-  const handleUrlUpload = async (url: string) => {
+  // Update the handleUrlUpload function
+  const handleUrlUpload = async (url: string, speakers: number) => {
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
     try {
@@ -57,7 +58,7 @@ function App() {
         },
         body: JSON.stringify({
           url,
-          speakers: 2,
+          speakers,
         }),
       });
 
@@ -87,9 +88,7 @@ function App() {
             <h2 className='text-3xl font-bold mb-4'>
               Start Converting Your Meetings
             </h2>
-            <p className='text-gray-600'>
-              Choose your preferred input method
-            </p>
+            <p className='text-gray-600'>Choose your preferred input method</p>
           </div>
 
           {state.error && (
@@ -100,7 +99,7 @@ function App() {
             </div>
           )}
 
-          <FileUpload 
+          <FileUpload
             onUpload={handleUpload}
             onUrlUpload={handleUrlUpload}
             isLoading={state.isLoading}

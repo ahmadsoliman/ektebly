@@ -1,10 +1,9 @@
 import { Upload, X, Mic, Link, Download } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { optimizeAudio, isVideoFile } from '../utils/ffmpeg';
-
 interface FileUploadProps {
-  onUpload: (file: File) => void;
-  onUrlUpload: (url: string) => void;
+  onUpload: (file: File, speakers: number) => void;
+  onUrlUpload: (url: string, speakers: number) => void;
   isLoading: boolean;
 }
 
@@ -22,6 +21,8 @@ export default function FileUpload({
   const [conversionProgress, setConversionProgress] = useState<number | null>(
     null
   );
+  const [speakerCount, setSpeakerCount] = useState<number>(1);
+
   const [conversionError, setConversionError] = useState<string | null>(null);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const audioChunks = useRef<Blob[]>([]);
@@ -78,13 +79,13 @@ export default function FileUpload({
 
   const handleSubmit = () => {
     if (optimizedFile) {
-      onUpload(optimizedFile);
+      onUpload(optimizedFile, speakerCount);
     }
   };
 
   const handleUrlSubmit = () => {
     if (url) {
-      onUrlUpload(url);
+      onUrlUpload(url, speakerCount);
       setUrl('');
       setShowUrlInput(false);
     }
@@ -146,6 +147,28 @@ export default function FileUpload({
 
   return (
     <div className='max-w-3xl mx-auto bg-white rounded-lg shadow-sm p-8 border border-gray-100'>
+      <div className='flex justify-end mb-4'>
+        <div className='flex items-center space-x-2'>
+          <label
+            htmlFor='speakers'
+            className='text-sm font-medium text-gray-700'
+          >
+            Number of Speakers:
+          </label>
+          <select
+            id='speakers'
+            value={speakerCount}
+            onChange={(e) => setSpeakerCount(parseInt(e.target.value))}
+            className='block w-20 rounded-md border-gray-200 shadow-sm focus:border-gray-900 focus:ring-gray-900 sm:text-sm'
+          >
+            {[...Array(10)].map((_, i) => (
+              <option key={i + 1} value={i + 1}>
+                {i + 1}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
       <div className='grid grid-cols-3 gap-4 mb-6'>
         <button
           onClick={() => {
